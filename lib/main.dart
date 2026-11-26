@@ -1,380 +1,453 @@
+import 'dart:convert';
 import 'package:flutter/material.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 
 void main() {
-  runApp(const ExpenseBudgetInvoiceApp());
+  WidgetsFlutterBinding.ensureInitialized();
+  runApp(const SmartLedgerApp());
 }
 
-class ExpenseBudgetInvoiceApp extends StatelessWidget {
-  const ExpenseBudgetInvoiceApp({super.key});
+class SmartLedgerApp extends StatelessWidget {
+  const SmartLedgerApp({super.key});
 
   @override
   Widget build(BuildContext context) {
     return MaterialApp(
-      title: 'Expense, Budget & Invoice Tracker',
+      title: 'SmartLedger Tracker',
       debugShowCheckedModeBanner: false,
       theme: ThemeData(
+        colorScheme: ColorScheme.fromSeed(seedColor: const Color(0xFF0F766E)),
         useMaterial3: true,
-        colorSchemeSeed: const Color(0xFF0F766E),
-        scaffoldBackgroundColor: const Color(0xFFF4F7F6),
       ),
-      home: const MainNavigationScreen(),
+      home: const SmartLedgerHome(),
     );
   }
 }
 
-class TransactionItem {
+enum TransactionType { expense, regularExpense }
+
+class LedgerEntry {
+  final String id;
   final String title;
   final String category;
   final double amount;
-  final bool isIncome;
   final DateTime date;
+  final TransactionType type;
+  final String? frequency;
 
-  TransactionItem({
+  LedgerEntry({
+    required this.id,
     required this.title,
     required this.category,
     required this.amount,
-    required this.isIncome,
     required this.date,
+    required this.type,
+    this.frequency,
   });
+
+  Map<String, dynamic> toJson() => {
+        'id': id,
+        'title': title,
+        'category': category,
+        'amount': amount,
+        'date': date.toIso8601String(),
+        'type': type.name,
+        'frequency': frequency,
+      };
+
+  factory LedgerEntry.fromJson(Map<String, dynamic> json) => LedgerEntry(
+        id: json['id'] as String,
+        title: json['title'] as String,
+        category: json['category'] as String,
+        amount: (json['amount'] as num).toDouble(),
+        date: DateTime.tryParse(json['date'] as String? ?? '') ?? DateTime.now(),
+        type: json['type'] == 'regularExpense'
+            ? TransactionType.regularExpense
+            : TransactionType.expense,
+        frequency: json['frequency'] as String?,
+      );
 }
 
-class InvoiceEntry {
-  final String invoiceNo;
+class InvoiceItem {
+  final String id;
   final String clientName;
-  final String itemDescription;
-  final int quantity;
-  final double unitPrice;
-  final DateTime date;
+  final String description;
+  final double amount;
+  final bool isPaid;
 
-  InvoiceEntry({
-    required this.invoiceNo,
+  InvoiceItem({
+    required this.id,
     required this.clientName,
-    required this.itemDescription,
-    required this.quantity,
-    required this.unitPrice,
-    required this.date,
+    required this.description,
+    required this.amount,
+    this.isPaid = false,
   });
 
-  double get total => quantity * unitPrice;
+  Map<String, dynamic> toJson() => {
+        'id': id,
+        'clientName': clientName,
+        'description': description,
+        'amount': amount,
+        'isPaid': isPaid,
+      };
+
+  factory InvoiceItem.fromJson(Map<String, dynamic> json) => InvoiceItem(
+        id: json['id'] as String,
+        clientName: json['clientName'] as String,
+        description: json['description'] as String,
+        amount: (json['amount'] as num).toDouble(),
+        isPaid: json['isPaid'] as bool? ?? false,
+      );
 }
 
-class MainNavigationScreen extends StatefulWidget {
-  const MainNavigationScreen({super.key});
+class SmartLedgerHome extends StatefulWidget {
+  const SmartLedgerHome({super.key});
 
   @override
-  State<MainNavigationScreen> createState() => _MainNavigationScreenState();
+  State<SmartLedgerHome> createState() => _SmartLedgerHomeState();
 }
 
-class _MainNavigationScreenState extends State<MainNavigationScreen> {
+class _SmartLedgerHomeState extends State<SmartLedgerHome> {
+  static const String _budgetKey = 'smartledger_monthly_budget';
+  static const String _catBudgetsKey = 'smartledger_category_budgets';
+  static const String _entriesKey = 'smartledger_entries';
+  static const String _invoicesKey = 'smartledger_invoices';
+
   int _selectedIndex = 0;
+  bool _isLoading = true;
 
-  final List<TransactionItem> _transactions = [
-    TransactionItem(
-      title: 'Freelance Web Design',
-      category: 'Income',
-      amount: 25000,
-      isIncome: true,
-      date: DateTime.now(),
-    ),
-    TransactionItem(
-      title: 'Grocery & Food',
-      category: 'Food',
-      amount: 4500,
-      isIncome: false,
-      date: DateTime.now(),
-    ),
-    TransactionItem(
-      title: 'Internet & Electricity',
-      category: 'Bills',
-      amount: 6200,
-      isIncome: false,
-      date: DateTime.now(),
-    ),
-  ];
-
+  double _monthlyBudget = 0.0;
   final Map<String, double> _categoryBudgets = {
-    'Food': 10000,
-    'Bills': 8000,
-    'Transport': 5000,
-    'Shopping': 7000,
+    'Food': 0.0,
+    'Travel': 0.0,
+    'Bills': 0.0,
+    'Shopping': 0.0,
+    'Other': 0.0,
   };
 
-  final List<InvoiceEntry> _invoices = [
-    InvoiceEntry(
-      invoiceNo: 'INV-1001',
-      clientName: 'Al-Madina Traders',
-      itemDescription: 'Mobile App UI Prototype',
-      quantity: 1,
-      unitPrice: 15000,
-      date: DateTime.now(),
-    ),
-  ];
+  final List<LedgerEntry> _entries = [];
+  final List<InvoiceItem> _invoices = [];
 
-  double get _totalIncome => _transactions
-      .where((t) => t.isIncome)
-      .fold(0.0, (sum, item) => sum + item.amount);
-
-  double get _totalExpense => _transactions
-      .where((t) => !t.isIncome)
-      .fold(0.0, (sum, item) => sum + item.amount);
-
-  double get _balance => _totalIncome - _totalExpense;
-
-  double _spentInCategory(String category) {
-    return _transactions
-        .where((t) => !t.isIncome && t.category == category)
-        .fold(0.0, (sum, item) => sum + item.amount);
+  @override
+  void initState() {
+    super.initState();
+    _loadDataFromPrefs();
   }
 
-  void _openAddTransactionSheet() {
-    final titleCtrl = TextEditingController();
-    final amountCtrl = TextEditingController();
-    String selectedCategory = 'Food';
-    bool isIncome = false;
+  Future<void> _loadDataFromPrefs() async {
+    final prefs = await SharedPreferences.getInstance();
+    final savedBudget = prefs.getDouble(_budgetKey) ?? 0.0;
 
-    showModalBottomSheet(
-      context: context,
-      isScrollControlled: true,
-      shape: const RoundedRectangleBorder(
-        borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
-      ),
-      builder: (ctx) {
-        return StatefulBuilder(
-          builder: (ctx, setModalState) {
-            return Padding(
-              padding: EdgeInsets.only(
-                left: 20,
-                right: 20,
-                top: 20,
-                bottom: MediaQuery.of(ctx).viewInsets.bottom + 20,
-              ),
-              child: Column(
-                mainAxisSize: MainAxisSize.min,
-                crossAxisAlignment: CrossAxisAlignment.stretch,
-                children: [
-                  const Text(
-                    'Add Transaction',
-                    style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
-                  ),
-                  const SizedBox(height: 12),
-                  SegmentedButton<bool>(
-                    segments: const [
-                      ButtonSegment(value: false, label: Text('Expense')),
-                      ButtonSegment(value: true, label: Text('Income')),
-                    ],
-                    selected: {isIncome},
-                    onSelectionChanged: (val) {
-                      setModalState(() {
-                        isIncome = val.first;
-                        selectedCategory = isIncome ? 'Income' : 'Food';
-                      });
-                    },
-                  ),
-                  const SizedBox(height: 12),
-                  TextField(
-                    controller: titleCtrl,
-                    decoration: const InputDecoration(
-                      labelText: 'Title (e.g. Lunch, Salary)',
-                      border: OutlineInputBorder(),
-                    ),
-                  ),
-                  const SizedBox(height: 12),
-                  TextField(
-                    controller: amountCtrl,
-                    keyboardType: TextInputType.number,
-                    decoration: const InputDecoration(
-                      labelText: 'Amount (PKR)',
-                      border: OutlineInputBorder(),
-                    ),
-                  ),
-                  const SizedBox(height: 12),
-                  if (!isIncome)
-                    DropdownButtonFormField<String>(
-                      value: selectedCategory,
-                      decoration: const InputDecoration(
-                        labelText: 'Category',
-                        border: OutlineInputBorder(),
-                      ),
-                      items: _categoryBudgets.keys
-                          .map((cat) =>
-                              DropdownMenuItem(value: cat, child: Text(cat)))
-                          .toList(),
-                      onChanged: (val) {
-                        if (val != null) {
-                          setModalState(() => selectedCategory = val);
-                        }
-                      },
-                    ),
-                  const SizedBox(height: 16),
-                  FilledButton(
-                    onPressed: () {
-                      final amount = double.tryParse(amountCtrl.text.trim());
-                      if (titleCtrl.text.trim().isEmpty ||
-                          amount == null ||
-                          amount <= 0) {
-                        return;
-                      }
-                      setState(() {
-                        _transactions.insert(
-                          0,
-                          TransactionItem(
-                            title: titleCtrl.text.trim(),
-                            category: isIncome ? 'Income' : selectedCategory,
-                            amount: amount,
-                            isIncome: isIncome,
-                            date: DateTime.now(),
-                          ),
-                        );
-                      });
-                      Navigator.pop(ctx);
-                    },
-                    child: const Text('Save Transaction'),
-                  ),
-                ],
-              ),
-            );
-          },
+    final catJsonString = prefs.getString(_catBudgetsKey);
+    if (catJsonString != null) {
+      final decoded = jsonDecode(catJsonString) as Map<String, dynamic>;
+      for (final key in _categoryBudgets.keys) {
+        if (decoded.containsKey(key)) {
+          _categoryBudgets[key] = (decoded[key] as num).toDouble();
+        }
+      }
+    }
+
+    final entriesString = prefs.getString(_entriesKey);
+    if (entriesString != null) {
+      final decodedList = jsonDecode(entriesString) as List<dynamic>;
+      _entries
+        ..clear()
+        ..addAll(
+          decodedList.map((item) => LedgerEntry.fromJson(item as Map<String, dynamic>)),
         );
-      },
+    }
+
+    final invoicesString = prefs.getString(_invoicesKey);
+    if (invoicesString != null) {
+      final decodedInv = jsonDecode(invoicesString) as List<dynamic>;
+      _invoices
+        ..clear()
+        ..addAll(
+          decodedInv.map((item) => InvoiceItem.fromJson(item as Map<String, dynamic>)),
+        );
+    }
+
+    if (!mounted) return;
+    setState(() {
+      _monthlyBudget = savedBudget;
+      _isLoading = false;
+    });
+  }
+
+  Future<void> _saveDataToPrefs() async {
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setDouble(_budgetKey, _monthlyBudget);
+    await prefs.setString(_catBudgetsKey, jsonEncode(_categoryBudgets));
+    await prefs.setString(
+      _entriesKey,
+      jsonEncode(_entries.map((e) => e.toJson()).toList()),
+    );
+    await prefs.setString(
+      _invoicesKey,
+      jsonEncode(_invoices.map((i) => i.toJson()).toList()),
     );
   }
 
-  void _openCreateInvoiceSheet() {
-    final clientCtrl = TextEditingController();
-    final itemCtrl = TextEditingController();
-    final qtyCtrl = TextEditingController(text: '1');
-    final priceCtrl = TextEditingController();
+  double get _totalSpent =>
+      _entries.fold(0.0, (sum, item) => sum + item.amount);
 
-    showModalBottomSheet(
+  double get _regularExpensesTotal => _entries
+      .where((e) => e.type == TransactionType.regularExpense)
+      .fold(0.0, (sum, item) => sum + item.amount);
+
+  double get _remainingBudget => _monthlyBudget - _totalSpent;
+
+  void _setMonthlyBudgetDialog() {
+    final controller = TextEditingController(
+      text: _monthlyBudget > 0 ? _monthlyBudget.toStringAsFixed(0) : '',
+    );
+
+    showDialog(
       context: context,
-      isScrollControlled: true,
-      shape: const RoundedRectangleBorder(
-        borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
-      ),
-      builder: (ctx) {
-        return Padding(
-          padding: EdgeInsets.only(
-            left: 20,
-            right: 20,
-            top: 20,
-            bottom: MediaQuery.of(ctx).viewInsets.bottom + 20,
+      builder: (context) => AlertDialog(
+        title: const Text('Apna Monthly Budget Likhein'),
+        content: TextField(
+          controller: controller,
+          keyboardType: TextInputType.number,
+          decoration: const InputDecoration(
+            labelText: 'Total Budget (e.g. 50000)',
+            border: OutlineInputBorder(),
           ),
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            crossAxisAlignment: CrossAxisAlignment.stretch,
-            children: [
-              const Text(
-                'Create New Invoice',
-                style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
-              ),
-              const SizedBox(height: 12),
-              TextField(
-                controller: clientCtrl,
-                decoration: const InputDecoration(
-                  labelText: 'Client / Customer Name',
-                  border: OutlineInputBorder(),
-                ),
-              ),
-              const SizedBox(height: 10),
-              TextField(
-                controller: itemCtrl,
-                decoration: const InputDecoration(
-                  labelText: 'Service / Item Description',
-                  border: OutlineInputBorder(),
-                ),
-              ),
-              const SizedBox(height: 10),
-              Row(
-                children: [
-                  Expanded(
-                    child: TextField(
-                      controller: qtyCtrl,
-                      keyboardType: TextInputType.number,
-                      decoration: const InputDecoration(
-                        labelText: 'Qty',
-                        border: OutlineInputBorder(),
-                      ),
-                    ),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context),
+            child: const Text('Cancel'),
+          ),
+          FilledButton(
+            onPressed: () async {
+              final value = double.tryParse(controller.text.trim());
+              if (value != null && value >= 0) {
+                setState(() => _monthlyBudget = value);
+                await _saveDataToPrefs();
+                if (context.mounted) Navigator.pop(context);
+              }
+            },
+            child: const Text('Save Budget'),
+          ),
+        ],
+      ),
+    );
+  }
+
+  void _addEntryDialog({required bool isRegular}) {
+    final titleController = TextEditingController();
+    final amountController = TextEditingController();
+    String selectedCategory = _categoryBudgets.keys.first;
+    String selectedFrequency = 'Monthly';
+
+    showDialog(
+      context: context,
+      builder: (context) => StatefulBuilder(
+        builder: (context, setModalState) => AlertDialog(
+          title: Text(
+            isRegular ? 'Naya Regular Expense Add Karein' : 'Naya Expense Add Karein',
+          ),
+          content: SingleChildScrollView(
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                TextField(
+                  controller: titleController,
+                  decoration: InputDecoration(
+                    labelText: isRegular
+                        ? 'Naam (e.g. Rent, Internet, Milk)'
+                        : 'Expense Title (e.g. Lunch, Taxi)',
+                    border: const OutlineInputBorder(),
                   ),
-                  const SizedBox(width: 10),
-                  Expanded(
-                    flex: 2,
-                    child: TextField(
-                      controller: priceCtrl,
-                      keyboardType: TextInputType.number,
-                      decoration: const InputDecoration(
-                        labelText: 'Unit Price (PKR)',
-                        border: OutlineInputBorder(),
-                      ),
+                ),
+                const SizedBox(height: 12),
+                TextField(
+                  controller: amountController,
+                  keyboardType: TextInputType.number,
+                  decoration: const InputDecoration(
+                    labelText: 'Amount',
+                    border: OutlineInputBorder(),
+                  ),
+                ),
+                const SizedBox(height: 12),
+                DropdownButtonFormField<String>(
+                  value: selectedCategory,
+                  decoration: const InputDecoration(
+                    labelText: 'Category',
+                    border: OutlineInputBorder(),
+                  ),
+                  items: _categoryBudgets.keys
+                      .map((cat) => DropdownMenuItem(value: cat, child: Text(cat)))
+                      .toList(),
+                  onChanged: (val) {
+                    if (val != null) {
+                      setModalState(() => selectedCategory = val);
+                    }
+                  },
+                ),
+                if (isRegular) ...[
+                  const SizedBox(height: 12),
+                  DropdownButtonFormField<String>(
+                    value: selectedFrequency,
+                    decoration: const InputDecoration(
+                      labelText: 'Repeat Frequency',
+                      border: OutlineInputBorder(),
                     ),
+                    items: const ['Daily', 'Weekly', 'Monthly']
+                        .map((freq) => DropdownMenuItem(value: freq, child: Text(freq)))
+                        .toList(),
+                    onChanged: (val) {
+                      if (val != null) {
+                        setModalState(() => selectedFrequency = val);
+                      }
+                    },
                   ),
                 ],
-              ),
-              const SizedBox(height: 16),
-              FilledButton(
-                onPressed: () {
-                  final qty = int.tryParse(qtyCtrl.text.trim()) ?? 1;
-                  final price = double.tryParse(priceCtrl.text.trim());
-                  if (clientCtrl.text.trim().isEmpty ||
-                      itemCtrl.text.trim().isEmpty ||
-                      price == null ||
-                      price <= 0) {
-                    return;
-                  }
+              ],
+            ),
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(context),
+              child: const Text('Cancel'),
+            ),
+            FilledButton(
+              onPressed: () async {
+                final title = titleController.text.trim();
+                final amount = double.tryParse(amountController.text.trim());
+                if (title.isNotEmpty && amount != null && amount > 0) {
                   setState(() {
-                    _invoices.insert(
+                    _entries.insert(
                       0,
-                      InvoiceEntry(
-                        invoiceNo: 'INV-${1001 + _invoices.length}',
-                        clientName: clientCtrl.text.trim(),
-                        itemDescription: itemCtrl.text.trim(),
-                        quantity: qty,
-                        unitPrice: price,
+                      LedgerEntry(
+                        id: DateTime.now().millisecondsSinceEpoch.toString(),
+                        title: title,
+                        category: selectedCategory,
+                        amount: amount,
                         date: DateTime.now(),
+                        type: isRegular
+                            ? TransactionType.regularExpense
+                            : TransactionType.expense,
+                        frequency: isRegular ? selectedFrequency : null,
                       ),
                     );
                   });
-                  Navigator.pop(ctx);
-                },
-                child: const Text('Generate Invoice'),
-              ),
-            ],
-          ),
-        );
-      },
+                  await _saveDataToPrefs();
+                  if (context.mounted) Navigator.pop(context);
+                }
+              },
+              child: const Text('Add'),
+            ),
+          ],
+        ),
+      ),
     );
   }
 
-  void _showInvoicePreview(InvoiceEntry invoice) {
+  void _editCategoryBudgetDialog(String category) {
+    final controller = TextEditingController(
+      text: (_categoryBudgets[category] ?? 0).toStringAsFixed(0),
+    );
     showDialog(
       context: context,
-      builder: (ctx) => AlertDialog(
-        title: Text('Invoice ${invoice.invoiceNo}'),
+      builder: (context) => AlertDialog(
+        title: Text('$category Budget Set Karein'),
+        content: TextField(
+          controller: controller,
+          keyboardType: TextInputType.number,
+          decoration: const InputDecoration(
+            labelText: 'Category Limit',
+            border: OutlineInputBorder(),
+          ),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context),
+            child: const Text('Cancel'),
+          ),
+          FilledButton(
+            onPressed: () async {
+              final value = double.tryParse(controller.text.trim());
+              if (value != null && value >= 0) {
+                setState(() => _categoryBudgets[category] = value);
+                await _saveDataToPrefs();
+                if (context.mounted) Navigator.pop(context);
+              }
+            },
+            child: const Text('Save'),
+          ),
+        ],
+      ),
+    );
+  }
+
+  void _addInvoiceDialog() {
+    final clientController = TextEditingController();
+    final descController = TextEditingController();
+    final amountController = TextEditingController();
+
+    showDialog(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Text('Naya Invoice Banayein'),
         content: Column(
           mainAxisSize: MainAxisSize.min,
-          crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            Text('Client: ${invoice.clientName}',
-                style: const TextStyle(fontWeight: FontWeight.bold)),
-            const Divider(),
-            Text('Item: ${invoice.itemDescription}'),
-            Text('Quantity: ${invoice.quantity}'),
-            Text('Unit Price: PKR ${invoice.unitPrice.toStringAsFixed(0)}'),
-            const Divider(),
-            Text(
-              'Total Payable: PKR ${invoice.total.toStringAsFixed(0)}',
-              style: const TextStyle(
-                fontSize: 16,
-                fontWeight: FontWeight.bold,
-                color: Color(0xFF0F766E),
+            TextField(
+              controller: clientController,
+              decoration: const InputDecoration(
+                labelText: 'Client / Customer Name',
+                border: OutlineInputBorder(),
+              ),
+            ),
+            const SizedBox(height: 10),
+            TextField(
+              controller: descController,
+              decoration: const InputDecoration(
+                labelText: 'Work / Item Description',
+                border: OutlineInputBorder(),
+              ),
+            ),
+            const SizedBox(height: 10),
+            TextField(
+              controller: amountController,
+              keyboardType: TextInputType.number,
+              decoration: const InputDecoration(
+                labelText: 'Amount',
+                border: OutlineInputBorder(),
               ),
             ),
           ],
         ),
         actions: [
           TextButton(
-            onPressed: () => Navigator.pop(ctx),
-            child: const Text('Close'),
+            onPressed: () => Navigator.pop(context),
+            child: const Text('Cancel'),
+          ),
+          FilledButton(
+            onPressed: () async {
+              final client = clientController.text.trim();
+              final desc = descController.text.trim();
+              final amount = double.tryParse(amountController.text.trim());
+              if (client.isNotEmpty && amount != null && amount > 0) {
+                setState(() {
+                  _invoices.insert(
+                    0,
+                    InvoiceItem(
+                      id: DateTime.now().millisecondsSinceEpoch.toString(),
+                      clientName: client,
+                      description: desc.isEmpty ? 'Invoice Item' : desc,
+                      amount: amount,
+                    ),
+                  );
+                });
+                await _saveDataToPrefs();
+                if (context.mounted) Navigator.pop(context);
+              }
+            },
+            child: const Text('Create'),
           ),
         ],
       ),
@@ -382,208 +455,157 @@ class _MainNavigationScreenState extends State<MainNavigationScreen> {
   }
 
   Widget _buildDashboardTab() {
+    final progress = _monthlyBudget > 0
+        ? (_totalSpent / _monthlyBudget).clamp(0.0, 1.0)
+        : 0.0;
+
     return ListView(
       padding: const EdgeInsets.all(16),
       children: [
-        Container(
-          padding: const EdgeInsets.all(20),
-          decoration: BoxDecoration(
-            gradient: const LinearGradient(
-              colors: [Color(0xFF0F766E), Color(0xFF115E59)],
-            ),
-            borderRadius: BorderRadius.circular(20),
-          ),
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              const Text('Current Balance',
-                  style: TextStyle(color: Colors.white70, fontSize: 14)),
-              const SizedBox(height: 6),
-              Text(
-                'PKR ${_balance.toStringAsFixed(0)}',
-                style: const TextStyle(
-                  color: Colors.white,
-                  fontSize: 28,
-                  fontWeight: FontWeight.bold,
+        Card(
+          child: Padding(
+            padding: const EdgeInsets.all(16),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Row(
+                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                  children: [
+                    const Text(
+                      'Apna Monthly Budget',
+                      style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold),
+                    ),
+                    TextButton.icon(
+                      onPressed: _setMonthlyBudgetDialog,
+                      icon: const Icon(Icons.edit, size: 18),
+                      label: Text(_monthlyBudget > 0 ? 'Change' : 'Set Budget'),
+                    ),
+                  ],
                 ),
-              ),
-              const SizedBox(height: 16),
-              Row(
-                mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                children: [
-                  Text('Income: +PKR ${_totalIncome.toStringAsFixed(0)}',
-                      style: const TextStyle(color: Colors.greenAccent)),
-                  Text('Expense: -PKR ${_totalExpense.toStringAsFixed(0)}',
-                      style: const TextStyle(color: Colors.orangeAccent)),
-                ],
-              ),
-            ],
+                Text(
+                  _monthlyBudget.toStringAsFixed(0),
+                  style: const TextStyle(fontSize: 28, fontWeight: FontWeight.bold),
+                ),
+                const SizedBox(height: 10),
+                LinearProgressIndicator(value: progress),
+                const SizedBox(height: 10),
+                Row(
+                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                  children: [
+                    Text('Total Kharcha: ${_totalSpent.toStringAsFixed(0)}'),
+                    Text(
+                      'Baqi: ${_remainingBudget.toStringAsFixed(0)}',
+                      style: TextStyle(
+                        fontWeight: FontWeight.bold,
+                        color: _remainingBudget < 0 ? Colors.red : Colors.teal,
+                      ),
+                    ),
+                  ],
+                ),
+              ],
+            ),
           ),
         ),
-        const SizedBox(height: 20),
-        const Text('Recent Transactions',
-            style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold)),
-        const SizedBox(height: 10),
-        ..._transactions.map((tx) {
-          return Card(
-            margin: const EdgeInsets.only(bottom: 10),
-            child: ListTile(
-              leading: CircleAvatar(
-                backgroundColor: tx.isIncome
-                    ? Colors.green.withOpacity(0.15)
-                    : Colors.red.withOpacity(0.15),
-                child: Icon(
-                  tx.isIncome ? Icons.arrow_downward : Icons.arrow_upward,
-                  color: tx.isIncome ? Colors.green : Colors.red,
-                ),
-              ),
-              title: Text(tx.title,
-                  style: const TextStyle(fontWeight: FontWeight.w600)),
-              subtitle: Text(tx.category),
-              trailing: Text(
-                '${tx.isIncome ? '+' : '-'}PKR ${tx.amount.toStringAsFixed(0)}',
-                style: TextStyle(
-                  fontWeight: FontWeight.bold,
-                  color: tx.isIncome ? Colors.green : Colors.red,
-                ),
-              ),
-            ),
-          );
-        }),
-      ],
-    );
-  }
-
-  Widget _buildBudgetsTab() {
-    return ListView(
-      padding: const EdgeInsets.all(16),
-      children: [
-        const Text('Monthly Category Budgets',
-            style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
         const SizedBox(height: 12),
-        ..._categoryBudgets.entries.map((entry) {
-          final spent = _spentInCategory(entry.key);
-          final limit = entry.value;
-          final ratio = (spent / limit).clamp(0.0, 1.0);
-          final isOver = spent > limit;
-
-          return Card(
-            margin: const EdgeInsets.only(bottom: 12),
-            child: Padding(
-              padding: const EdgeInsets.all(16),
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Row(
-                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
+        Row(
+          children: [
+            Expanded(
+              child: Card(
+                child: Padding(
+                  padding: const EdgeInsets.all(14),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
-                      Text(entry.key,
-                          style: const TextStyle(
-                              fontSize: 16, fontWeight: FontWeight.bold)),
+                      const Text('Regular Expenses'),
+                      const SizedBox(height: 6),
                       Text(
-                        'PKR ${spent.toStringAsFixed(0)} / ${limit.toStringAsFixed(0)}',
-                        style: TextStyle(
-                          color: isOver ? Colors.red : Colors.black87,
-                          fontWeight: FontWeight.w600,
+                        _regularExpensesTotal.toStringAsFixed(0),
+                        style: const TextStyle(
+                          fontSize: 20,
+                          fontWeight: FontWeight.bold,
                         ),
                       ),
                     ],
                   ),
-                  const SizedBox(height: 10),
-                  LinearProgressIndicator(
-                    value: ratio,
-                    minHeight: 8,
-                    borderRadius: BorderRadius.circular(8),
-                    color: isOver
-                        ? Colors.red
-                        : (ratio > 0.75 ? Colors.orange : Colors.teal),
-                  ),
-                ],
+                ),
               ),
             ),
-          );
-        }),
-      ],
-    );
-  }
-
-  Widget _buildInvoicesTab() {
-    return ListView(
-      padding: const EdgeInsets.all(16),
-      children: [
-        Row(
-          mainAxisAlignment: MainAxisAlignment.spaceBetween,
-          children: [
-            const Text('Invoices & Receipts',
-                style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
-            FilledButton.icon(
-              onPressed: _openCreateInvoiceSheet,
-              icon: const Icon(Icons.add),
-              label: const Text('New Invoice'),
+            const SizedBox(width: 12),
+            Expanded(
+              child: Card(
+                child: Padding(
+                  padding: const EdgeInsets.all(14),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      const Text('Total Entries'),
+                      const SizedBox(height: 6),
+                      Text(
+                        '${_entries.length}',
+                        style: const TextStyle(
+                          fontSize: 20,
+                          fontWeight: FontWeight.bold,
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+              ),
             ),
           ],
         ),
-        const SizedBox(height: 12),
-        ..._invoices.map((inv) {
-          return Card(
-            margin: const EdgeInsets.only(bottom: 10),
-            child: ListTile(
-              leading: const CircleAvatar(child: Icon(Icons.receipt_long)),
-              title: Text('${inv.invoiceNo} • ${inv.clientName}',
-                  style: const TextStyle(fontWeight: FontWeight.bold)),
-              subtitle: Text(inv.itemDescription),
-              trailing: Text(
-                'PKR ${inv.total.toStringAsFixed(0)}',
-                style: const TextStyle(
-                    fontWeight: FontWeight.bold, color: Color(0xFF0F766E)),
+        const SizedBox(height: 16),
+        const Text(
+          'Recent Entries',
+          style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold),
+        ),
+        const SizedBox(height: 8),
+        if (_entries.isEmpty)
+          const Card(
+            child: Padding(
+              padding: EdgeInsets.all(20),
+              child: Text(
+                'Abhi koi entry nahi hai. Neeche + button se apna expense ya regular expense add karein.',
               ),
-              onTap: () => _showInvoicePreview(inv),
             ),
-          );
-        }),
+          )
+        else
+          ..._entries.take(5).map(
+                (entry) => Card(
+                  child: ListTile(
+                    title: Text(entry.title),
+                    subtitle: Text(
+                      entry.type == TransactionType.regularExpense
+                          ? '${entry.category} • Regular (${entry.frequency})'
+                          : '${entry.category} • Expense',
+                    ),
+                    trailing: Text(
+                      '-${entry.amount.toStringAsFixed(0)}',
+                      style: const TextStyle(fontWeight: FontWeight.bold),
+                    ),
+                  ),
+                ),
+              ),
       ],
     );
   }
 
-  @override
-  Widget build(BuildContext context) {
-    final pages = [
-      _buildDashboardTab(),
-      _buildBudgetsTab(),
-      _buildInvoicesTab(),
-    ];
-
-    return Scaffold(
-      appBar: AppBar(
-        title: const Text('SmartLedger Tracker'),
-        centerTitle: false,
-      ),
-      body: pages[_selectedIndex],
-      floatingActionButton: _selectedIndex == 0
-          ? FloatingActionButton.extended(
-              onPressed: _openAddTransactionSheet,
-              icon: const Icon(Icons.add),
-              label: const Text('Add Entry'),
-            )
-          : null,
-      bottomNavigationBar: NavigationBar(
-        selectedIndex: _selectedIndex,
-        onDestinationSelected: (idx) => setState(() => _selectedIndex = idx),
-        destinations: const [
-          NavigationDestination(
-              icon: Icon(Icons.dashboard_outlined),
-              selectedIcon: Icon(Icons.dashboard),
-              label: 'Dashboard'),
-          NavigationDestination(
-              icon: Icon(Icons.pie_chart_outline),
-              selectedIcon: Icon(Icons.pie_chart),
-              label: 'Budgets'),
-          NavigationDestination(
-              icon: Icon(Icons.receipt_long_outlined),
-              selectedIcon: Icon(Icons.receipt_long),
-              label: 'Invoices'),
-        ],
-      ),
-    );
-  }
-}
+  Widget _buildExpensesTab() {
+    return ListView(
+      padding: const EdgeInsets.all(16),
+      children: [
+        if (_entries.isEmpty)
+          const Card(
+            child: Padding(
+              padding: EdgeInsets.all(20),
+              child: Text('Koi expense add nahi hua. Naya expense add karne ke liye + dabayein.'),
+            ),
+          )
+        else
+          ..._entries.map(
+            (entry) => Card(
+              child: ListTile(
+                title: Text(entry.title),
+                subtitle: Text(
+                  entry.type == TransactionType.regularExpense
+                      ? '${entry.ca
