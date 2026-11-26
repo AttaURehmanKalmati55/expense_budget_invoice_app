@@ -24,79 +24,73 @@ class SmartLedgerApp extends StatelessWidget {
   }
 }
 
-enum TransactionType { expense, regularExpense }
+enum EntryType { expense, regular }
 
-class LedgerEntry {
+class EntryItem {
   final String id;
   final String title;
   final String category;
   final double amount;
-  final DateTime date;
-  final TransactionType type;
-  final String? frequency;
+  final EntryType type;
+  final String frequency;
 
-  LedgerEntry({
+  EntryItem({
     required this.id,
     required this.title,
     required this.category,
     required this.amount,
-    required this.date,
     required this.type,
-    this.frequency,
+    required this.frequency,
   });
 
-  Map<String, dynamic> toJson() => {
+  Map<String, dynamic> toMap() => {
         'id': id,
         'title': title,
         'category': category,
         'amount': amount,
-        'date': date.toIso8601String(),
         'type': type.name,
         'frequency': frequency,
       };
 
-  factory LedgerEntry.fromJson(Map<String, dynamic> json) => LedgerEntry(
-        id: json['id'] as String,
-        title: json['title'] as String,
-        category: json['category'] as String,
-        amount: (json['amount'] as num).toDouble(),
-        date: DateTime.tryParse(json['date'] as String? ?? '') ?? DateTime.now(),
-        type: json['type'] == 'regularExpense'
-            ? TransactionType.regularExpense
-            : TransactionType.expense,
-        frequency: json['frequency'] as String?,
+  factory EntryItem.fromMap(Map<String, dynamic> map) => EntryItem(
+        id: map['id'] ?? '',
+        title: map['title'] ?? '',
+        category: map['category'] ?? 'General',
+        amount: (map['amount'] as num?)?.toDouble() ?? 0.0,
+        type: map['type'] == 'regular' ? EntryType.regular : EntryType.expense,
+        frequency: map['frequency'] ?? 'One-time',
       );
 }
 
-class InvoiceItem {
+class InvoiceRecord {
   final String id;
-  final String clientName;
-  final String description;
+  final String customer;
+  final String note;
   final double amount;
-  final bool isPaid;
+  final bool paid;
 
-  InvoiceItem({
+  InvoiceRecord({
     required this.id,
-    required this.clientName,
-    required this.description,
+    required this.customer,
+    required this.note,
     required this.amount,
-    this.isPaid = false,
+    required this.paid,
   });
 
-  Map<String, dynamic> toJson() => {
+  Map<String, dynamic> toMap() => {
         'id': id,
-        'clientName': clientName,
-        'description': description,
+        'customer': customer,
+        'note': note,
         'amount': amount,
-        'isPaid': isPaid,
+        'paid': paid,
       };
 
-  factory InvoiceItem.fromJson(Map<String, dynamic> json) => InvoiceItem(
-        id: json['id'] as String,
-        clientName: json['clientName'] as String,
-        description: json['description'] as String,
-        amount: (json['amount'] as num).toDouble(),
-        isPaid: json['isPaid'] as bool? ?? false,
+  factory InvoiceRecord.fromMap(Map<String, dynamic> map) => InvoiceRecord(
+        id: map['id'] ?? '',
+        customer: map['customer'] ?? '',
+        note: map['note'] ?? '',
+        amount: (map['amount'] as num?)?.toDouble() ?? 0.0,
+        paid: map['paid'] ?? false,
       );
 }
 
@@ -108,279 +102,95 @@ class SmartLedgerHome extends StatefulWidget {
 }
 
 class _SmartLedgerHomeState extends State<SmartLedgerHome> {
-  static const String _budgetKey = 'smartledger_monthly_budget';
-  static const String _catBudgetsKey = 'smartledger_category_budgets';
-  static const String _entriesKey = 'smartledger_entries';
-  static const String _invoicesKey = 'smartledger_invoices';
+  int _tabIndex = 0;
+  bool _loading = true;
 
-  int _selectedIndex = 0;
-  bool _isLoading = true;
-
-  double _monthlyBudget = 0.0;
-  final Map<String, double> _categoryBudgets = {
-    'Food': 0.0,
-    'Travel': 0.0,
-    'Bills': 0.0,
-    'Shopping': 0.0,
-    'Other': 0.0,
-  };
-
-  final List<LedgerEntry> _entries = [];
-  final List<InvoiceItem> _invoices = [];
+  double _budget = 0.0;
+  final List<EntryItem> _entries = [];
+  final List<InvoiceRecord> _invoices = [];
 
   @override
   void initState() {
     super.initState();
-    _loadDataFromPrefs();
+    _loadSaved();
   }
 
-  Future<void> _loadDataFromPrefs() async {
+  Future<void> _loadSaved() async {
     final prefs = await SharedPreferences.getInstance();
-    final savedBudget = prefs.getDouble(_budgetKey) ?? 0.0;
+    final savedBudget = prefs.getDouble('sl_budget') ?? 0.0;
 
-    final catJsonString = prefs.getString(_catBudgetsKey);
-    if (catJsonString != null) {
-      final decoded = jsonDecode(catJsonString) as Map<String, dynamic>;
-      for (final key in _categoryBudgets.keys) {
-        if (decoded.containsKey(key)) {
-          _categoryBudgets[key] = (decoded[key] as num).toDouble();
-        }
-      }
-    }
-
-    final entriesString = prefs.getString(_entriesKey);
-    if (entriesString != null) {
-      final decodedList = jsonDecode(entriesString) as List<dynamic>;
+    final entriesRaw = prefs.getString('sl_entries');
+    if (entriesRaw != null) {
+      final list = jsonDecode(entriesRaw) as List<dynamic>;
       _entries
         ..clear()
-        ..addAll(
-          decodedList
-              .map((item) => LedgerEntry.fromJson(item as Map<String, dynamic>)),
-        );
+        ..addAll(list.map((e) => EntryItem.fromMap(e as Map<String, dynamic>)));
     }
 
-    final invoicesString = prefs.getString(_invoicesKey);
-    if (invoicesString != null) {
-      final decodedInv = jsonDecode(invoicesString) as List<dynamic>;
+    final invoicesRaw = prefs.getString('sl_invoices');
+    if (invoicesRaw != null) {
+      final list = jsonDecode(invoicesRaw) as List<dynamic>;
       _invoices
         ..clear()
         ..addAll(
-          decodedInv
-              .map((item) => InvoiceItem.fromJson(item as Map<String, dynamic>)),
+          list.map((e) => InvoiceRecord.fromMap(e as Map<String, dynamic>)),
         );
     }
 
     if (!mounted) return;
     setState(() {
-      _monthlyBudget = savedBudget;
-      _isLoading = false;
+      _budget = savedBudget;
+      _loading = false;
     });
   }
 
-  Future<void> _saveDataToPrefs() async {
+  Future<void> _saveAll() async {
     final prefs = await SharedPreferences.getInstance();
-    await prefs.setDouble(_budgetKey, _monthlyBudget);
-    await prefs.setString(_catBudgetsKey, jsonEncode(_categoryBudgets));
+    await prefs.setDouble('sl_budget', _budget);
     await prefs.setString(
-      _entriesKey,
-      jsonEncode(_entries.map((e) => e.toJson()).toList()),
+      'sl_entries',
+      jsonEncode(_entries.map((e) => e.toMap()).toList()),
     );
     await prefs.setString(
-      _invoicesKey,
-      jsonEncode(_invoices.map((i) => i.toJson()).toList()),
+      'sl_invoices',
+      jsonEncode(_invoices.map((e) => e.toMap()).toList()),
     );
   }
 
-  double get _totalSpent =>
-      _entries.fold(0.0, (sum, item) => sum + item.amount);
+  double get _spent => _entries.fold(0.0, (sum, e) => sum + e.amount);
 
-  double get _regularExpensesTotal => _entries
-      .where((e) => e.type == TransactionType.regularExpense)
-      .fold(0.0, (sum, item) => sum + item.amount);
+  double get _regularTotal => _entries
+      .where((e) => e.type == EntryType.regular)
+      .fold(0.0, (sum, e) => sum + e.amount);
 
-  double get _remainingBudget => _monthlyBudget - _totalSpent;
-
-  void _setMonthlyBudgetDialog() {
-    final controller = TextEditingController(
-      text: _monthlyBudget > 0 ? _monthlyBudget.toStringAsFixed(0) : '',
+  void _openBudgetDialog() {
+    final ctrl = TextEditingController(
+      text: _budget > 0 ? _budget.toStringAsFixed(0) : '',
     );
-
     showDialog(
       context: context,
-      builder: (context) => AlertDialog(
-        title: const Text('Apna Monthly Budget Likhein'),
+      builder: (ctx) => AlertDialog(
+        title: const Text('Apna Budget Likhein'),
         content: TextField(
-          controller: controller,
+          controller: ctrl,
           keyboardType: TextInputType.number,
           decoration: const InputDecoration(
-            labelText: 'Total Budget (e.g. 50000)',
+            labelText: 'Budget Amount',
             border: OutlineInputBorder(),
           ),
         ),
         actions: [
           TextButton(
-            onPressed: () => Navigator.pop(context),
+            onPressed: () => Navigator.pop(ctx),
             child: const Text('Cancel'),
           ),
           FilledButton(
             onPressed: () async {
-              final value = double.tryParse(controller.text.trim());
-              if (value != null && value >= 0) {
-                setState(() => _monthlyBudget = value);
-                await _saveDataToPrefs();
-                if (context.mounted) Navigator.pop(context);
-              }
-            },
-            child: const Text('Save Budget'),
-          ),
-        ],
-      ),
-    );
-  }
-
-  void _addEntryDialog({required bool isRegular}) {
-    final titleController = TextEditingController();
-    final amountController = TextEditingController();
-    String selectedCategory = _categoryBudgets.keys.first;
-    String selectedFrequency = 'Monthly';
-
-    showDialog(
-      context: context,
-      builder: (context) => StatefulBuilder(
-        builder: (context, setModalState) => AlertDialog(
-          title: Text(
-            isRegular
-                ? 'Naya Regular Expense Add Karein'
-                : 'Naya Expense Add Karein',
-          ),
-          content: SingleChildScrollView(
-            child: Column(
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                TextField(
-                  controller: titleController,
-                  decoration: InputDecoration(
-                    labelText: isRegular
-                        ? 'Naam (e.g. Rent, Internet, Milk)'
-                        : 'Expense Title (e.g. Lunch, Taxi)',
-                    border: const OutlineInputBorder(),
-                  ),
-                ),
-                const SizedBox(height: 12),
-                TextField(
-                  controller: amountController,
-                  keyboardType: TextInputType.number,
-                  decoration: const InputDecoration(
-                    labelText: 'Amount',
-                    border: OutlineInputBorder(),
-                  ),
-                ),
-                const SizedBox(height: 12),
-                DropdownButtonFormField<String>(
-                  value: selectedCategory,
-                  decoration: const InputDecoration(
-                    labelText: 'Category',
-                    border: OutlineInputBorder(),
-                  ),
-                  items: _categoryBudgets.keys
-                      .map((cat) => DropdownMenuItem(value: cat, child: Text(cat)))
-                      .toList(),
-                  onChanged: (val) {
-                    if (val != null) {
-                      setModalState(() => selectedCategory = val);
-                    }
-                  },
-                ),
-                if (isRegular) ...[
-                  const SizedBox(height: 12),
-                  DropdownButtonFormField<String>(
-                    value: selectedFrequency,
-                    decoration: const InputDecoration(
-                      labelText: 'Repeat Frequency',
-                      border: OutlineInputBorder(),
-                    ),
-                    items: const ['Daily', 'Weekly', 'Monthly']
-                        .map(
-                          (freq) =>
-                              DropdownMenuItem(value: freq, child: Text(freq)),
-                        )
-                        .toList(),
-                    onChanged: (val) {
-                      if (val != null) {
-                        setModalState(() => selectedFrequency = val);
-                      }
-                    },
-                  ),
-                ],
-              ],
-            ),
-          ),
-          actions: [
-            TextButton(
-              onPressed: () => Navigator.pop(context),
-              child: const Text('Cancel'),
-            ),
-            FilledButton(
-              onPressed: () async {
-                final title = titleController.text.trim();
-                final amount = double.tryParse(amountController.text.trim());
-                if (title.isNotEmpty && amount != null && amount > 0) {
-                  setState(() {
-                    _entries.insert(
-                      0,
-                      LedgerEntry(
-                        id: DateTime.now().millisecondsSinceEpoch.toString(),
-                        title: title,
-                        category: selectedCategory,
-                        amount: amount,
-                        date: DateTime.now(),
-                        type: isRegular
-                            ? TransactionType.regularExpense
-                            : TransactionType.expense,
-                        frequency: isRegular ? selectedFrequency : null,
-                      ),
-                    );
-                  });
-                  await _saveDataToPrefs();
-                  if (context.mounted) Navigator.pop(context);
-                }
-              },
-              child: const Text('Add'),
-            ),
-          ],
-        ),
-      ),
-    );
-  }
-
-  void _editCategoryBudgetDialog(String category) {
-    final controller = TextEditingController(
-      text: (_categoryBudgets[category] ?? 0).toStringAsFixed(0),
-    );
-    showDialog(
-      context: context,
-      builder: (context) => AlertDialog(
-        title: Text('$category Budget Set Karein'),
-        content: TextField(
-          controller: controller,
-          keyboardType: TextInputType.number,
-          decoration: const InputDecoration(
-            labelText: 'Category Limit',
-            border: OutlineInputBorder(),
-          ),
-        ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(context),
-            child: const Text('Cancel'),
-          ),
-          FilledButton(
-            onPressed: () async {
-              final value = double.tryParse(controller.text.trim());
-              if (value != null && value >= 0) {
-                setState(() => _categoryBudgets[category] = value);
-                await _saveDataToPrefs();
-                if (context.mounted) Navigator.pop(context);
+              final val = double.tryParse(ctrl.text.trim());
+              if (val != null && val >= 0) {
+                setState(() => _budget = val);
+                await _saveAll();
+                if (ctx.mounted) Navigator.pop(ctx);
               }
             },
             child: const Text('Save'),
@@ -390,36 +200,167 @@ class _SmartLedgerHomeState extends State<SmartLedgerHome> {
     );
   }
 
-  void _addInvoiceDialog() {
-    final clientController = TextEditingController();
-    final descController = TextEditingController();
-    final amountController = TextEditingController();
+  void _openEntryDialog({EntryItem? existing, bool forceRegular = false}) {
+    final titleCtrl = TextEditingController(text: existing?.title ?? '');
+    final amountCtrl = TextEditingController(
+      text: existing != null ? existing.amount.toStringAsFixed(0) : '',
+    );
+    final catCtrl = TextEditingController(text: existing?.category ?? 'General');
+    EntryType type = existing?.type ??
+        (forceRegular ? EntryType.regular : EntryType.expense);
+    String freq = existing?.frequency ?? (forceRegular ? 'Monthly' : 'One-time');
 
     showDialog(
       context: context,
-      builder: (context) => AlertDialog(
-        title: const Text('Naya Invoice Banayein'),
+      builder: (ctx) => StatefulBuilder(
+        builder: (ctx, setLocal) => AlertDialog(
+          title: Text(existing == null ? 'Entry Add Karein' : 'Entry Edit Karein'),
+          content: SingleChildScrollView(
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                TextField(
+                  controller: titleCtrl,
+                  decoration: const InputDecoration(
+                    labelText: 'Title',
+                    border: OutlineInputBorder(),
+                  ),
+                ),
+                const SizedBox(height: 10),
+                TextField(
+                  controller: amountCtrl,
+                  keyboardType: TextInputType.number,
+                  decoration: const InputDecoration(
+                    labelText: 'Amount',
+                    border: OutlineInputBorder(),
+                  ),
+                ),
+                const SizedBox(height: 10),
+                TextField(
+                  controller: catCtrl,
+                  decoration: const InputDecoration(
+                    labelText: 'Category',
+                    border: OutlineInputBorder(),
+                  ),
+                ),
+                const SizedBox(height: 10),
+                DropdownButtonFormField<EntryType>(
+                  value: type,
+                  decoration: const InputDecoration(
+                    labelText: 'Type',
+                    border: OutlineInputBorder(),
+                  ),
+                  items: const [
+                    DropdownMenuItem(
+                      value: EntryType.expense,
+                      child: Text('Expense'),
+                    ),
+                    DropdownMenuItem(
+                      value: EntryType.regular,
+                      child: Text('Regular Expense'),
+                    ),
+                  ],
+                  onChanged: (v) {
+                    if (v != null) {
+                      setLocal(() {
+                        type = v;
+                        if (v == EntryType.regular && freq == 'One-time') {
+                          freq = 'Monthly';
+                        }
+                      });
+                    }
+                  },
+                ),
+                if (type == EntryType.regular) ...[
+                  const SizedBox(height: 10),
+                  DropdownButtonFormField<String>(
+                    value: freq == 'One-time' ? 'Monthly' : freq,
+                    decoration: const InputDecoration(
+                      labelText: 'Frequency',
+                      border: OutlineInputBorder(),
+                    ),
+                    items: const ['Daily', 'Weekly', 'Monthly']
+                        .map((f) => DropdownMenuItem(value: f, child: Text(f)))
+                        .toList(),
+                    onChanged: (v) {
+                      if (v != null) setLocal(() => freq = v);
+                    },
+                  ),
+                ],
+              ],
+            ),
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(ctx),
+              child: const Text('Cancel'),
+            ),
+            FilledButton(
+              onPressed: () async {
+                final title = titleCtrl.text.trim();
+                final amt = double.tryParse(amountCtrl.text.trim());
+                final cat =
+                    catCtrl.text.trim().isEmpty ? 'General' : catCtrl.text.trim();
+                if (title.isNotEmpty && amt != null && amt > 0) {
+                  setState(() {
+                    final item = EntryItem(
+                      id: existing?.id ??
+                          DateTime.now().millisecondsSinceEpoch.toString(),
+                      title: title,
+                      category: cat,
+                      amount: amt,
+                      type: type,
+                      frequency: type == EntryType.regular ? freq : 'One-time',
+                    );
+                    if (existing == null) {
+                      _entries.insert(0, item);
+                    } else {
+                      final i = _entries.indexWhere((e) => e.id == existing.id);
+                      if (i != -1) _entries[i] = item;
+                    }
+                  });
+                  await _saveAll();
+                  if (ctx.mounted) Navigator.pop(ctx);
+                }
+              },
+              child: const Text('Save'),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  void _openInvoiceDialog() {
+    final custCtrl = TextEditingController();
+    final noteCtrl = TextEditingController();
+    final amtCtrl = TextEditingController();
+
+    showDialog(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text('Naya Invoice'),
         content: Column(
           mainAxisSize: MainAxisSize.min,
           children: [
             TextField(
-              controller: clientController,
+              controller: custCtrl,
               decoration: const InputDecoration(
-                labelText: 'Client / Customer Name',
+                labelText: 'Customer Name',
                 border: OutlineInputBorder(),
               ),
             ),
             const SizedBox(height: 10),
             TextField(
-              controller: descController,
+              controller: noteCtrl,
               decoration: const InputDecoration(
-                labelText: 'Work / Item Description',
+                labelText: 'Details',
                 border: OutlineInputBorder(),
               ),
             ),
             const SizedBox(height: 10),
             TextField(
-              controller: amountController,
+              controller: amtCtrl,
               keyboardType: TextInputType.number,
               decoration: const InputDecoration(
                 labelText: 'Amount',
@@ -430,42 +371,39 @@ class _SmartLedgerHomeState extends State<SmartLedgerHome> {
         ),
         actions: [
           TextButton(
-            onPressed: () => Navigator.pop(context),
+            onPressed: () => Navigator.pop(ctx),
             child: const Text('Cancel'),
           ),
           FilledButton(
             onPressed: () async {
-              final client = clientController.text.trim();
-              final desc = descController.text.trim();
-              final amount = double.tryParse(amountController.text.trim());
-              if (client.isNotEmpty && amount != null && amount > 0) {
+              final cust = custCtrl.text.trim();
+              final amt = double.tryParse(amtCtrl.text.trim());
+              if (cust.isNotEmpty && amt != null && amt > 0) {
                 setState(() {
                   _invoices.insert(
                     0,
-                    InvoiceItem(
+                    InvoiceRecord(
                       id: DateTime.now().millisecondsSinceEpoch.toString(),
-                      clientName: client,
-                      description: desc.isEmpty ? 'Invoice Item' : desc,
-                      amount: amount,
+                      customer: cust,
+                      note: noteCtrl.text.trim(),
+                      amount: amt,
+                      paid: false,
                     ),
                   );
                 });
-                await _saveDataToPrefs();
-                if (context.mounted) Navigator.pop(context);
+                await _saveAll();
+                if (ctx.mounted) Navigator.pop(ctx);
               }
             },
-            child: const Text('Create'),
+            child: const Text('Add'),
           ),
         ],
       ),
     );
   }
 
-  Widget _buildDashboardTab() {
-    final progress = _monthlyBudget > 0
-        ? (_totalSpent / _monthlyBudget).clamp(0.0, 1.0)
-        : 0.0;
-
+  Widget _dashboardView() {
+    final rem = _budget - _spent;
     return ListView(
       padding: const EdgeInsets.all(16),
       children: [
@@ -479,24 +417,218 @@ class _SmartLedgerHomeState extends State<SmartLedgerHome> {
                   mainAxisAlignment: MainAxisAlignment.spaceBetween,
                   children: [
                     const Text(
-                      'Apna Monthly Budget',
+                      'Monthly Budget',
                       style:
                           TextStyle(fontSize: 16, fontWeight: FontWeight.bold),
                     ),
-                    TextButton.icon(
-                      onPressed: _setMonthlyBudgetDialog,
-                      icon: const Icon(Icons.edit, size: 18),
-                      label: Text(_monthlyBudget > 0 ? 'Change' : 'Set Budget'),
+                    TextButton(
+                      onPressed: _openBudgetDialog,
+                      child: const Text('Set / Edit'),
                     ),
                   ],
                 ),
                 Text(
-                  _monthlyBudget.toStringAsFixed(0),
+                  _budget.toStringAsFixed(0),
                   style: const TextStyle(
                       fontSize: 28, fontWeight: FontWeight.bold),
                 ),
-                const SizedBox(height: 10),
-                LinearProgressIndicator(value: progress),
-                const SizedBox(height: 10),
-                Row(
-                  mainAxisAlignment: MainAxis
+                const SizedBox(height: 8),
+                Text('Total Spent: ${_spent.toStringAsFixed(0)}'),
+                Text('Regular Total: ${_regularTotal.toStringAsFixed(0)}'),
+                Text(
+                  'Remaining: ${rem.toStringAsFixed(0)}',
+                  style: TextStyle(
+                    fontWeight: FontWeight.bold,
+                    color: rem < 0 ? Colors.red : Colors.teal,
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ),
+        const SizedBox(height: 12),
+        if (_entries.isEmpty)
+          const Card(
+            child: Padding(
+              padding: EdgeInsets.all(16),
+              child: Text('Abhi koi entry nahi hai. + se apna expense add karein.'),
+            ),
+          )
+        else
+          ..._entries.take(5).map(
+                (e) => Card(
+                  child: ListTile(
+                    title: Text(e.title),
+                    subtitle: Text('${e.category} • ${e.frequency}'),
+                    trailing: Text(e.amount.toStringAsFixed(0)),
+                  ),
+                ),
+              ),
+      ],
+    );
+  }
+
+  Widget _entriesView({required bool onlyRegular}) {
+    final list = onlyRegular
+        ? _entries.where((e) => e.type == EntryType.regular).toList()
+        : _entries;
+
+    return ListView(
+      padding: const EdgeInsets.all(16),
+      children: [
+        if (list.isEmpty)
+          Card(
+            child: Padding(
+              padding: const EdgeInsets.all(16),
+              child: Text(
+                onlyRegular
+                    ? 'Koi regular expense nahi hai.'
+                    : 'Koi expense nahi hai.',
+              ),
+            ),
+          )
+        else
+          ...list.map(
+            (e) => Card(
+              child: ListTile(
+                title: Text(e.title),
+                subtitle: Text('${e.category} • ${e.frequency}'),
+                trailing: Row(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Text(e.amount.toStringAsFixed(0)),
+                    IconButton(
+                      icon: const Icon(Icons.edit),
+                      onPressed: () => _openEntryDialog(existing: e),
+                    ),
+                    IconButton(
+                      icon: const Icon(Icons.delete),
+                      onPressed: () async {
+                        setState(
+                            () => _entries.removeWhere((x) => x.id == e.id));
+                        await _saveAll();
+                      },
+                    ),
+                  ],
+                ),
+              ),
+            ),
+          ),
+      ],
+    );
+  }
+
+  Widget _invoicesView() {
+    return ListView(
+      padding: const EdgeInsets.all(16),
+      children: [
+        if (_invoices.isEmpty)
+          const Card(
+            child: Padding(
+              padding: EdgeInsets.all(16),
+              child: Text('Koi invoice nahi hai.'),
+            ),
+          )
+        else
+          ..._invoices.map(
+            (inv) => Card(
+              child: CheckboxListTile(
+                value: inv.paid,
+                title: Text('${inv.customer} — ${inv.amount.toStringAsFixed(0)}'),
+                subtitle: Text(inv.note.isEmpty ? 'Invoice' : inv.note),
+                onChanged: (v) async {
+                  setState(() {
+                    final i = _invoices.indexWhere((x) => x.id == inv.id);
+                    if (i != -1) {
+                      _invoices[i] = InvoiceRecord(
+                        id: inv.id,
+                        customer: inv.customer,
+                        note: inv.note,
+                        amount: inv.amount,
+                        paid: v ?? false,
+                      );
+                    }
+                  });
+                  await _saveAll();
+                },
+              ),
+            ),
+          ),
+      ],
+    );
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    if (_loading) {
+      return const Scaffold(body: Center(child: CircularProgressIndicator()));
+    }
+
+    final views = [
+      _dashboardView(),
+      _entriesView(onlyRegular: false),
+      _entriesView(onlyRegular: true),
+      _invoicesView(),
+    ];
+
+    final menuTitles = [
+      'Dashboard',
+      'Expenses',
+      'Regular Expenses',
+      'Invoices',
+    ];
+
+    return Scaffold(
+      appBar: AppBar(title: Text('SmartLedger • ${menuTitles[_tabIndex]}')),
+      drawer: Drawer(
+        child: ListView(
+          children: [
+            const DrawerHeader(
+              child: Text(
+                'SmartLedger Menu',
+                style: TextStyle(fontSize: 20, fontWeight: FontWeight.bold),
+              ),
+            ),
+            for (int i = 0; i < menuTitles.length; i++)
+              ListTile(
+                title: Text(menuTitles[i]),
+                selected: _tabIndex == i,
+                onTap: () {
+                  setState(() => _tabIndex = i);
+                  Navigator.pop(context);
+                },
+              ),
+            ListTile(
+              title: const Text('Set Budget'),
+              onTap: () {
+                Navigator.pop(context);
+                _openBudgetDialog();
+              },
+            ),
+          ],
+        ),
+      ),
+      body: views[_tabIndex],
+      bottomNavigationBar: NavigationBar(
+        selectedIndex: _tabIndex,
+        onDestinationSelected: (i) => setState(() => _tabIndex = i),
+        destinations: const [
+          NavigationDestination(icon: Icon(Icons.home), label: 'Dashboard'),
+          NavigationDestination(icon: Icon(Icons.list), label: 'Expenses'),
+          NavigationDestination(icon: Icon(Icons.repeat), label: 'Regular'),
+          NavigationDestination(icon: Icon(Icons.receipt), label: 'Invoices'),
+        ],
+      ),
+      floatingActionButton: FloatingActionButton(
+        onPressed: () {
+          if (_tabIndex == 3) {
+            _openInvoiceDialog();
+          } else {
+            _openEntryDialog(forceRegular: _tabIndex == 2);
+          }
+        },
+        child: const Icon(Icons.add),
+      ),
+    );
+  }
+}
