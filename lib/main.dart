@@ -24,73 +24,73 @@ class SmartLedgerApp extends StatelessWidget {
   }
 }
 
-enum EntryKind { expense, regular }
+enum EntryType { expense, regular }
 
-class BudgetEntry {
+class EntryItem {
   final String id;
   final String title;
   final String category;
   final double amount;
-  final EntryKind kind;
+  final EntryType type;
   final String frequency;
 
-  BudgetEntry({
+  EntryItem({
     required this.id,
     required this.title,
     required this.category,
     required this.amount,
-    required this.kind,
+    required this.type,
     required this.frequency,
   });
 
-  Map<String, dynamic> toJson() => {
+  Map<String, dynamic> toMap() => {
         'id': id,
         'title': title,
         'category': category,
         'amount': amount,
-        'kind': kind.name,
+        'type': type.name,
         'frequency': frequency,
       };
 
-  factory BudgetEntry.fromJson(Map<String, dynamic> json) => BudgetEntry(
-        id: json['id']?.toString() ?? '',
-        title: json['title']?.toString() ?? '',
-        category: json['category']?.toString() ?? 'General',
-        amount: (json['amount'] as num?)?.toDouble() ?? 0.0,
-        kind: json['kind'] == 'regular' ? EntryKind.regular : EntryKind.expense,
-        frequency: json['frequency']?.toString() ?? 'One-time',
+  factory EntryItem.fromMap(Map<String, dynamic> map) => EntryItem(
+        id: map['id'] ?? '',
+        title: map['title'] ?? '',
+        category: map['category'] ?? 'General',
+        amount: (map['amount'] as num?)?.toDouble() ?? 0.0,
+        type: map['type'] == 'regular' ? EntryType.regular : EntryType.expense,
+        frequency: map['frequency'] ?? 'One-time',
       );
 }
 
-class BillRecord {
+class InvoiceRecord {
   final String id;
-  final String partyName;
-  final String details;
+  final String customer;
+  final String note;
   final double amount;
-  final bool settled;
+  final bool paid;
 
-  BillRecord({
+  InvoiceRecord({
     required this.id,
-    required this.partyName,
-    required this.details,
+    required this.customer,
+    required this.note,
     required this.amount,
-    required this.settled,
+    required this.paid,
   });
 
-  Map<String, dynamic> toJson() => {
+  Map<String, dynamic> toMap() => {
         'id': id,
-        'partyName': partyName,
-        'details': details,
+        'customer': customer,
+        'note': note,
         'amount': amount,
-        'settled': settled,
+        'paid': paid,
       };
 
-  factory BillRecord.fromJson(Map<String, dynamic> json) => BillRecord(
-        id: json['id']?.toString() ?? '',
-        partyName: json['partyName']?.toString() ?? '',
-        details: json['details']?.toString() ?? '',
-        amount: (json['amount'] as num?)?.toDouble() ?? 0.0,
-        settled: json['settled'] == true,
+  factory InvoiceRecord.fromMap(Map<String, dynamic> map) => InvoiceRecord(
+        id: map['id'] ?? '',
+        customer: map['customer'] ?? '',
+        note: map['note'] ?? '',
+        amount: (map['amount'] as num?)?.toDouble() ?? 0.0,
+        paid: map['paid'] ?? false,
       );
 }
 
@@ -101,123 +101,96 @@ class SmartLedgerHome extends StatefulWidget {
   State<SmartLedgerHome> createState() => _SmartLedgerHomeState();
 }
 
-class _SmartLedgerHomeState extends State<SmartLedgerHome>
-    with WidgetsBindingObserver {
-  int _currentTab = 0;
-  bool _isLoading = true;
+class _SmartLedgerHomeState extends State<SmartLedgerHome> {
+  int _tabIndex = 0;
+  bool _loading = true;
 
-  // Koi pre-filled demo data nahi — shuru mein 0 aur empty list
-  double _userBudget = 0.0;
-  final List<BudgetEntry> _entries = [];
-  final List<BillRecord> _bills = [];
+  double _budget = 0.0;
+  final List<EntryItem> _entries = [];
+  final List<InvoiceRecord> _invoices = [];
 
   @override
   void initState() {
     super.initState();
-    WidgetsBinding.instance.addObserver(this);
-    _loadSavedState();
+    _loadSaved();
   }
 
-  @override
-  void dispose() {
-    WidgetsBinding.instance.removeObserver(this);
-    super.dispose();
-  }
-
-  @override
-  void didChangeAppLifecycleState(AppLifecycleState state) {
-    if (state == AppLifecycleState.inactive ||
-        state == AppLifecycleState.paused ||
-        state == AppLifecycleState.detached) {
-      _persistState();
-    }
-  }
-
-  Future<void> _loadSavedState() async {
+  Future<void> _loadSaved() async {
     final prefs = await SharedPreferences.getInstance();
-    final savedBudget = prefs.getDouble('saved_user_budget') ?? 0.0;
+    final savedBudget = prefs.getDouble('sl_budget') ?? 0.0;
 
-    final rawEntries = prefs.getString('saved_budget_entries');
-    if (rawEntries != null && rawEntries.isNotEmpty) {
-      final decoded = jsonDecode(rawEntries) as List<dynamic>;
+    final entriesRaw = prefs.getString('sl_entries');
+    if (entriesRaw != null) {
+      final list = jsonDecode(entriesRaw) as List<dynamic>;
       _entries
         ..clear()
-        ..addAll(
-          decoded.map(
-            (item) => BudgetEntry.fromJson(item as Map<String, dynamic>),
-          ),
-        );
+        ..addAll(list.map((e) => EntryItem.fromMap(e as Map<String, dynamic>)));
     }
 
-    final rawBills = prefs.getString('saved_bill_records');
-    if (rawBills != null && rawBills.isNotEmpty) {
-      final decodedBills = jsonDecode(rawBills) as List<dynamic>;
-      _bills
+    final invoicesRaw = prefs.getString('sl_invoices');
+    if (invoicesRaw != null) {
+      final list = jsonDecode(invoicesRaw) as List<dynamic>;
+      _invoices
         ..clear()
         ..addAll(
-          decodedBills.map(
-            (item) => BillRecord.fromJson(item as Map<String, dynamic>),
-          ),
+          list.map((e) => InvoiceRecord.fromMap(e as Map<String, dynamic>)),
         );
     }
 
     if (!mounted) return;
     setState(() {
-      _userBudget = savedBudget;
-      _isLoading = false;
+      _budget = savedBudget;
+      _loading = false;
     });
   }
 
-  Future<void> _persistState() async {
+  Future<void> _saveAll() async {
     final prefs = await SharedPreferences.getInstance();
-    await prefs.setDouble('saved_user_budget', _userBudget);
+    await prefs.setDouble('sl_budget', _budget);
     await prefs.setString(
-      'saved_budget_entries',
-      jsonEncode(_entries.map((e) => e.toJson()).toList()),
+      'sl_entries',
+      jsonEncode(_entries.map((e) => e.toMap()).toList()),
     );
     await prefs.setString(
-      'saved_bill_records',
-      jsonEncode(_bills.map((b) => b.toJson()).toList()),
+      'sl_invoices',
+      jsonEncode(_invoices.map((e) => e.toMap()).toList()),
     );
   }
 
-  double get _totalExpenseAmount =>
-      _entries.fold(0.0, (sum, item) => sum + item.amount);
+  double get _spent => _entries.fold(0.0, (sum, e) => sum + e.amount);
 
-  double get _totalRegularAmount => _entries
-      .where((item) => item.kind == EntryKind.regular)
-      .fold(0.0, (sum, item) => sum + item.amount);
+  double get _regularTotal => _entries
+      .where((e) => e.type == EntryType.regular)
+      .fold(0.0, (sum, e) => sum + e.amount);
 
-  Future<void> _showBudgetInputDialog() async {
-    final controller = TextEditingController(
-      text: _userBudget > 0 ? _userBudget.toStringAsFixed(0) : '',
+  void _openBudgetDialog() {
+    final ctrl = TextEditingController(
+      text: _budget > 0 ? _budget.toStringAsFixed(0) : '',
     );
-
-    await showDialog<void>(
+    showDialog(
       context: context,
-      builder: (dialogContext) => AlertDialog(
+      builder: (ctx) => AlertDialog(
         title: const Text('Apna Budget Likhein'),
         content: TextField(
-          controller: controller,
+          controller: ctrl,
           keyboardType: TextInputType.number,
           decoration: const InputDecoration(
             labelText: 'Budget Amount',
-            hintText: 'Apni marzi ka budget likhein',
             border: OutlineInputBorder(),
           ),
         ),
         actions: [
           TextButton(
-            onPressed: () => Navigator.pop(dialogContext),
+            onPressed: () => Navigator.pop(ctx),
             child: const Text('Cancel'),
           ),
           FilledButton(
             onPressed: () async {
-              final parsed = double.tryParse(controller.text.trim());
-              if (parsed != null && parsed >= 0) {
-                setState(() => _userBudget = parsed);
-                await _persistState();
-                if (dialogContext.mounted) Navigator.pop(dialogContext);
+              final val = double.tryParse(ctrl.text.trim());
+              if (val != null && val >= 0) {
+                setState(() => _budget = val);
+                await _saveAll();
+                if (ctx.mounted) Navigator.pop(ctx);
               }
             },
             child: const Text('Save'),
@@ -227,44 +200,35 @@ class _SmartLedgerHomeState extends State<SmartLedgerHome>
     );
   }
 
-  Future<void> _showEntryFormDialog({
-    BudgetEntry? existing,
-    bool defaultRegular = false,
-  }) async {
-    final titleController = TextEditingController(text: existing?.title ?? '');
-    final amountController = TextEditingController(
+  void _openEntryDialog({EntryItem? existing, bool forceRegular = false}) {
+    final titleCtrl = TextEditingController(text: existing?.title ?? '');
+    final amountCtrl = TextEditingController(
       text: existing != null ? existing.amount.toStringAsFixed(0) : '',
     );
-    final categoryController = TextEditingController(
-      text: existing?.category ?? 'General',
-    );
+    final catCtrl = TextEditingController(text: existing?.category ?? 'General');
+    EntryType type = existing?.type ??
+        (forceRegular ? EntryType.regular : EntryType.expense);
+    String freq = existing?.frequency ?? (forceRegular ? 'Monthly' : 'One-time');
 
-    EntryKind selectedKind = existing?.kind ??
-        (defaultRegular ? EntryKind.regular : EntryKind.expense);
-    String selectedFreq = existing?.frequency ??
-        (selectedKind == EntryKind.regular ? 'Monthly' : 'One-time');
-
-    await showDialog<void>(
+    showDialog(
       context: context,
-      builder: (dialogContext) => StatefulBuilder(
-        builder: (context, setModalState) => AlertDialog(
-          title: Text(
-            existing == null ? 'Naya Expense Add Karein' : 'Expense Edit Karein',
-          ),
+      builder: (ctx) => StatefulBuilder(
+        builder: (ctx, setLocal) => AlertDialog(
+          title: Text(existing == null ? 'Entry Add Karein' : 'Entry Edit Karein'),
           content: SingleChildScrollView(
             child: Column(
               mainAxisSize: MainAxisSize.min,
               children: [
                 TextField(
-                  controller: titleController,
+                  controller: titleCtrl,
                   decoration: const InputDecoration(
-                    labelText: 'Naam / Title',
+                    labelText: 'Title',
                     border: OutlineInputBorder(),
                   ),
                 ),
                 const SizedBox(height: 10),
                 TextField(
-                  controller: amountController,
+                  controller: amountCtrl,
                   keyboardType: TextInputType.number,
                   decoration: const InputDecoration(
                     labelText: 'Amount',
@@ -273,61 +237,53 @@ class _SmartLedgerHomeState extends State<SmartLedgerHome>
                 ),
                 const SizedBox(height: 10),
                 TextField(
-                  controller: categoryController,
+                  controller: catCtrl,
                   decoration: const InputDecoration(
                     labelText: 'Category',
                     border: OutlineInputBorder(),
                   ),
                 ),
                 const SizedBox(height: 10),
-                DropdownButtonFormField<EntryKind>(
-                  value: selectedKind,
+                DropdownButtonFormField<EntryType>(
+                  value: type,
                   decoration: const InputDecoration(
-                    labelText: 'Expense Type',
+                    labelText: 'Type',
                     border: OutlineInputBorder(),
                   ),
                   items: const [
                     DropdownMenuItem(
-                      value: EntryKind.expense,
-                      child: Text('Normal Expense'),
+                      value: EntryType.expense,
+                      child: Text('Expense'),
                     ),
                     DropdownMenuItem(
-                      value: EntryKind.regular,
+                      value: EntryType.regular,
                       child: Text('Regular Expense'),
                     ),
                   ],
-                  onChanged: (value) {
-                    if (value != null) {
-                      setModalState(() {
-                        selectedKind = value;
-                        if (value == EntryKind.regular &&
-                            selectedFreq == 'One-time') {
-                          selectedFreq = 'Monthly';
-                        } else if (value == EntryKind.expense) {
-                          selectedFreq = 'One-time';
+                  onChanged: (v) {
+                    if (v != null) {
+                      setLocal(() {
+                        type = v;
+                        if (v == EntryType.regular && freq == 'One-time') {
+                          freq = 'Monthly';
                         }
                       });
                     }
                   },
                 ),
-                if (selectedKind == EntryKind.regular) ...[
+                if (type == EntryType.regular) ...[
                   const SizedBox(height: 10),
                   DropdownButtonFormField<String>(
-                    value: selectedFreq == 'One-time' ? 'Monthly' : selectedFreq,
+                    value: freq == 'One-time' ? 'Monthly' : freq,
                     decoration: const InputDecoration(
-                      labelText: 'Regular Interval',
+                      labelText: 'Frequency',
                       border: OutlineInputBorder(),
                     ),
                     items: const ['Daily', 'Weekly', 'Monthly']
-                        .map(
-                          (freq) =>
-                              DropdownMenuItem(value: freq, child: Text(freq)),
-                        )
+                        .map((f) => DropdownMenuItem(value: f, child: Text(f)))
                         .toList(),
-                    onChanged: (value) {
-                      if (value != null) {
-                        setModalState(() => selectedFreq = value);
-                      }
+                    onChanged: (v) {
+                      if (v != null) setLocal(() => freq = v);
                     },
                   ),
                 ],
@@ -336,42 +292,35 @@ class _SmartLedgerHomeState extends State<SmartLedgerHome>
           ),
           actions: [
             TextButton(
-              onPressed: () => Navigator.pop(dialogContext),
+              onPressed: () => Navigator.pop(ctx),
               child: const Text('Cancel'),
             ),
             FilledButton(
               onPressed: () async {
-                final title = titleController.text.trim();
-                final amount = double.tryParse(amountController.text.trim());
-                final category = categoryController.text.trim().isEmpty
-                    ? 'General'
-                    : categoryController.text.trim();
-
-                if (title.isNotEmpty && amount != null && amount > 0) {
-                  final updatedItem = BudgetEntry(
-                    id: existing?.id ??
-                        DateTime.now().millisecondsSinceEpoch.toString(),
-                    title: title,
-                    category: category,
-                    amount: amount,
-                    kind: selectedKind,
-                    frequency:
-                        selectedKind == EntryKind.regular ? selectedFreq : 'One-time',
-                  );
-
+                final title = titleCtrl.text.trim();
+                final amt = double.tryParse(amountCtrl.text.trim());
+                final cat =
+                    catCtrl.text.trim().isEmpty ? 'General' : catCtrl.text.trim();
+                if (title.isNotEmpty && amt != null && amt > 0) {
                   setState(() {
+                    final item = EntryItem(
+                      id: existing?.id ??
+                          DateTime.now().millisecondsSinceEpoch.toString(),
+                      title: title,
+                      category: cat,
+                      amount: amt,
+                      type: type,
+                      frequency: type == EntryType.regular ? freq : 'One-time',
+                    );
                     if (existing == null) {
-                      _entries.insert(0, updatedItem);
+                      _entries.insert(0, item);
                     } else {
-                      final index =
-                          _entries.indexWhere((item) => item.id == existing.id);
-                      if (index != -1) {
-                        _entries[index] = updatedItem;
-                      }
+                      final i = _entries.indexWhere((e) => e.id == existing.id);
+                      if (i != -1) _entries[i] = item;
                     }
                   });
-                  await _persistState();
-                  if (dialogContext.mounted) Navigator.pop(dialogContext);
+                  await _saveAll();
+                  if (ctx.mounted) Navigator.pop(ctx);
                 }
               },
               child: const Text('Save'),
@@ -382,28 +331,28 @@ class _SmartLedgerHomeState extends State<SmartLedgerHome>
     );
   }
 
-  Future<void> _showBillFormDialog() async {
-    final partyController = TextEditingController();
-    final detailsController = TextEditingController();
-    final amountController = TextEditingController();
+  void _openInvoiceDialog() {
+    final custCtrl = TextEditingController();
+    final noteCtrl = TextEditingController();
+    final amtCtrl = TextEditingController();
 
-    await showDialog<void>(
+    showDialog(
       context: context,
-      builder: (dialogContext) => AlertDialog(
-        title: const Text('Naya Invoice Add Karein'),
+      builder: (ctx) => AlertDialog(
+        title: const Text('Naya Invoice'),
         content: Column(
           mainAxisSize: MainAxisSize.min,
           children: [
             TextField(
-              controller: partyController,
+              controller: custCtrl,
               decoration: const InputDecoration(
-                labelText: 'Client / Customer Name',
+                labelText: 'Customer Name',
                 border: OutlineInputBorder(),
               ),
             ),
             const SizedBox(height: 10),
             TextField(
-              controller: detailsController,
+              controller: noteCtrl,
               decoration: const InputDecoration(
                 labelText: 'Details',
                 border: OutlineInputBorder(),
@@ -411,7 +360,7 @@ class _SmartLedgerHomeState extends State<SmartLedgerHome>
             ),
             const SizedBox(height: 10),
             TextField(
-              controller: amountController,
+              controller: amtCtrl,
               keyboardType: TextInputType.number,
               decoration: const InputDecoration(
                 labelText: 'Amount',
@@ -422,28 +371,28 @@ class _SmartLedgerHomeState extends State<SmartLedgerHome>
         ),
         actions: [
           TextButton(
-            onPressed: () => Navigator.pop(dialogContext),
+            onPressed: () => Navigator.pop(ctx),
             child: const Text('Cancel'),
           ),
           FilledButton(
             onPressed: () async {
-              final party = partyController.text.trim();
-              final amount = double.tryParse(amountController.text.trim());
-              if (party.isNotEmpty && amount != null && amount > 0) {
+              final cust = custCtrl.text.trim();
+              final amt = double.tryParse(amtCtrl.text.trim());
+              if (cust.isNotEmpty && amt != null && amt > 0) {
                 setState(() {
-                  _bills.insert(
+                  _invoices.insert(
                     0,
-                    BillRecord(
+                    InvoiceRecord(
                       id: DateTime.now().millisecondsSinceEpoch.toString(),
-                      partyName: party,
-                      details: detailsController.text.trim(),
-                      amount: amount,
-                      settled: false,
+                      customer: cust,
+                      note: noteCtrl.text.trim(),
+                      amount: amt,
+                      paid: false,
                     ),
                   );
                 });
-                await _persistState();
-                if (dialogContext.mounted) Navigator.pop(dialogContext);
+                await _saveAll();
+                if (ctx.mounted) Navigator.pop(ctx);
               }
             },
             child: const Text('Add'),
@@ -453,8 +402,8 @@ class _SmartLedgerHomeState extends State<SmartLedgerHome>
     );
   }
 
-  Widget _buildOverviewMenu() {
-    final remaining = _userBudget - _totalExpenseAmount;
+  Widget _dashboardView() {
+    final rem = _budget - _spent;
     return ListView(
       padding: const EdgeInsets.all(16),
       children: [
@@ -468,31 +417,29 @@ class _SmartLedgerHomeState extends State<SmartLedgerHome>
                   mainAxisAlignment: MainAxisAlignment.spaceBetween,
                   children: [
                     const Text(
-                      'Apna Budget',
+                      'Monthly Budget',
                       style:
                           TextStyle(fontSize: 16, fontWeight: FontWeight.bold),
                     ),
                     TextButton(
-                      onPressed: _showBudgetInputDialog,
-                      child: Text(_userBudget > 0 ? 'Edit Budget' : 'Set Budget'),
+                      onPressed: _openBudgetDialog,
+                      child: const Text('Set / Edit'),
                     ),
                   ],
                 ),
                 Text(
-                  _userBudget.toStringAsFixed(0),
+                  _budget.toStringAsFixed(0),
                   style: const TextStyle(
-                    fontSize: 28,
-                    fontWeight: FontWeight.bold,
-                  ),
+                      fontSize: 28, fontWeight: FontWeight.bold),
                 ),
                 const SizedBox(height: 8),
-                Text('Total Spent: ${_totalExpenseAmount.toStringAsFixed(0)}'),
-                Text('Regular Expenses: ${_totalRegularAmount.toStringAsFixed(0)}'),
+                Text('Total Spent: ${_spent.toStringAsFixed(0)}'),
+                Text('Regular Total: ${_regularTotal.toStringAsFixed(0)}'),
                 Text(
-                  'Remaining: ${remaining.toStringAsFixed(0)}',
+                  'Remaining: ${rem.toStringAsFixed(0)}',
                   style: TextStyle(
                     fontWeight: FontWeight.bold,
-                    color: remaining < 0 ? Colors.red : Colors.teal,
+                    color: rem < 0 ? Colors.red : Colors.teal,
                   ),
                 ),
               ],
@@ -504,18 +451,16 @@ class _SmartLedgerHomeState extends State<SmartLedgerHome>
           const Card(
             child: Padding(
               padding: EdgeInsets.all(16),
-              child: Text(
-                'Abhi koi expense add nahi hua. + button daba kar apna expense likhein.',
-              ),
+              child: Text('Abhi koi entry nahi hai. + se apna expense add karein.'),
             ),
           )
         else
           ..._entries.take(5).map(
-                (entry) => Card(
+                (e) => Card(
                   child: ListTile(
-                    title: Text(entry.title),
-                    subtitle: Text('${entry.category} • ${entry.frequency}'),
-                    trailing: Text(entry.amount.toStringAsFixed(0)),
+                    title: Text(e.title),
+                    subtitle: Text('${e.category} • ${e.frequency}'),
+                    trailing: Text(e.amount.toStringAsFixed(0)),
                   ),
                 ),
               ),
@@ -523,46 +468,45 @@ class _SmartLedgerHomeState extends State<SmartLedgerHome>
     );
   }
 
-  Widget _buildEntriesMenu({required bool onlyRegular}) {
-    final filtered = onlyRegular
-        ? _entries.where((item) => item.kind == EntryKind.regular).toList()
+  Widget _entriesView({required bool onlyRegular}) {
+    final list = onlyRegular
+        ? _entries.where((e) => e.type == EntryType.regular).toList()
         : _entries;
 
     return ListView(
       padding: const EdgeInsets.all(16),
       children: [
-        if (filtered.isEmpty)
+        if (list.isEmpty)
           Card(
             child: Padding(
               padding: const EdgeInsets.all(16),
               child: Text(
                 onlyRegular
-                    ? 'Koi regular expense add nahi hua.'
-                    : 'Koi expense add nahi hua.',
+                    ? 'Koi regular expense nahi hai.'
+                    : 'Koi expense nahi hai.',
               ),
             ),
           )
         else
-          ...filtered.map(
-            (entry) => Card(
+          ...list.map(
+            (e) => Card(
               child: ListTile(
-                title: Text(entry.title),
-                subtitle: Text('${entry.category} • ${entry.frequency}'),
+                title: Text(e.title),
+                subtitle: Text('${e.category} • ${e.frequency}'),
                 trailing: Row(
                   mainAxisSize: MainAxisSize.min,
                   children: [
-                    Text(entry.amount.toStringAsFixed(0)),
+                    Text(e.amount.toStringAsFixed(0)),
                     IconButton(
                       icon: const Icon(Icons.edit),
-                      onPressed: () => _showEntryFormDialog(existing: entry),
+                      onPressed: () => _openEntryDialog(existing: e),
                     ),
                     IconButton(
                       icon: const Icon(Icons.delete),
                       onPressed: () async {
                         setState(
-                          () => _entries.removeWhere((item) => item.id == entry.id),
-                        );
-                        await _persistState();
+                            () => _entries.removeWhere((x) => x.id == e.id));
+                        await _saveAll();
                       },
                     ),
                   ],
@@ -574,37 +518,117 @@ class _SmartLedgerHomeState extends State<SmartLedgerHome>
     );
   }
 
-  Widget _buildBillsMenu() {
+  Widget _invoicesView() {
     return ListView(
       padding: const EdgeInsets.all(16),
       children: [
-        if (_bills.isEmpty)
+        if (_invoices.isEmpty)
           const Card(
             child: Padding(
               padding: EdgeInsets.all(16),
-              child: Text('Koi invoice add nahi hua.'),
+              child: Text('Koi invoice nahi hai.'),
             ),
           )
         else
-          ..._bills.map(
-            (bill) => Card(
+          ..._invoices.map(
+            (inv) => Card(
               child: CheckboxListTile(
-                value: bill.settled,
-                title: Text(
-                  '${bill.partyName} — ${bill.amount.toStringAsFixed(0)}',
-                ),
-                subtitle: Text(bill.details.isEmpty ? 'Invoice' : bill.details),
-                onChanged: (value) async {
+                value: inv.paid,
+                title: Text('${inv.customer} — ${inv.amount.toStringAsFixed(0)}'),
+                subtitle: Text(inv.note.isEmpty ? 'Invoice' : inv.note),
+                onChanged: (v) async {
                   setState(() {
-                    final idx = _bills.indexWhere((item) => item.id == bill.id);
-                    if (idx != -1) {
-                      _bills[idx] = BillRecord(
-                        id: bill.id,
-                        partyName: bill.partyName,
-                        details: bill.details,
-                        amount: bill.amount,
-                        settled: value ?? false,
+                    final i = _invoices.indexWhere((x) => x.id == inv.id);
+                    if (i != -1) {
+                      _invoices[i] = InvoiceRecord(
+                        id: inv.id,
+                        customer: inv.customer,
+                        note: inv.note,
+                        amount: inv.amount,
+                        paid: v ?? false,
                       );
                     }
                   });
-                  await _p
+                  await _saveAll();
+                },
+              ),
+            ),
+          ),
+      ],
+    );
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    if (_loading) {
+      return const Scaffold(body: Center(child: CircularProgressIndicator()));
+    }
+
+    final views = [
+      _dashboardView(),
+      _entriesView(onlyRegular: false),
+      _entriesView(onlyRegular: true),
+      _invoicesView(),
+    ];
+
+    final menuTitles = [
+      'Dashboard',
+      'Expenses',
+      'Regular Expenses',
+      'Invoices',
+    ];
+
+    return Scaffold(
+      appBar: AppBar(title: Text('SmartLedger • ${menuTitles[_tabIndex]}')),
+      drawer: Drawer(
+        child: ListView(
+          children: [
+            const DrawerHeader(
+              child: Text(
+                'SmartLedger Menu',
+                style: TextStyle(fontSize: 20, fontWeight: FontWeight.bold),
+              ),
+            ),
+            for (int i = 0; i < menuTitles.length; i++)
+              ListTile(
+                title: Text(menuTitles[i]),
+                selected: _tabIndex == i,
+                onTap: () {
+                  setState(() => _tabIndex = i);
+                  Navigator.pop(context);
+                },
+              ),
+            ListTile(
+              title: const Text('Set Budget'),
+              onTap: () {
+                Navigator.pop(context);
+                _openBudgetDialog();
+              },
+            ),
+          ],
+        ),
+      ),
+      body: views[_tabIndex],
+      bottomNavigationBar: NavigationBar(
+        selectedIndex: _tabIndex,
+        onDestinationSelected: (i) => setState(() => _tabIndex = i),
+        destinations: const [
+          NavigationDestination(icon: Icon(Icons.home), label: 'Dashboard'),
+          NavigationDestination(icon: Icon(Icons.list), label: 'Expenses'),
+          NavigationDestination(icon: Icon(Icons.repeat), label: 'Regular'),
+          NavigationDestination(icon: Icon(Icons.receipt), label: 'Invoices'),
+        ],
+      ),
+      floatingActionButton: FloatingActionButton(
+        onPressed: () {
+          if (_tabIndex == 3) {
+            _openInvoiceDialog();
+          } else {
+            _openEntryDialog(forceRegular: _tabIndex == 2);
+          }
+        },
+        child: const Icon(Icons.add),
+      ),
+    );
+  }
+}
