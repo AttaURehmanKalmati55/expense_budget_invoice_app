@@ -31,12 +31,18 @@ jobs:
           cp -r lib /tmp/custom_backup/
           cp pubspec.yaml /tmp/custom_backup/
 
-      - name: Generate Android project structure
+      - name: Generate Android project structure & update Kotlin
         run: |
           flutter create --org com.example --project-name expense_budget_invoice_app .
           rm -rf lib
           cp -r /tmp/custom_backup/lib .
           cp /tmp/custom_backup/pubspec.yaml .
+          if [ -f android/settings.gradle ]; then
+            sed -i 's/org.jetbrains.kotlin.android" version "[0-9.]*"/org.jetbrains.kotlin.android" version "1.9.24"/g' android/settings.gradle
+          fi
+          if [ -f android/build.gradle ]; then
+            sed -i "s/ext.kotlin_version = '[^']*'/ext.kotlin_version = '1.9.24'/g" android/build.gradle
+          fi
 
       - name: Get dependencies & Build APK
         run: |
@@ -48,3 +54,4 @@ jobs:
         with:
           name: Expense-Budget-Invoice-App-APK
           path: build/app/outputs/flutter-apk/app-release.apk
+          
