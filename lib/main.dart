@@ -154,7 +154,8 @@ class _SmartLedgerHomeState extends State<SmartLedgerHome> {
       _entries
         ..clear()
         ..addAll(
-          decodedList.map((item) => LedgerEntry.fromJson(item as Map<String, dynamic>)),
+          decodedList
+              .map((item) => LedgerEntry.fromJson(item as Map<String, dynamic>)),
         );
     }
 
@@ -164,7 +165,8 @@ class _SmartLedgerHomeState extends State<SmartLedgerHome> {
       _invoices
         ..clear()
         ..addAll(
-          decodedInv.map((item) => InvoiceItem.fromJson(item as Map<String, dynamic>)),
+          decodedInv
+              .map((item) => InvoiceItem.fromJson(item as Map<String, dynamic>)),
         );
     }
 
@@ -247,7 +249,9 @@ class _SmartLedgerHomeState extends State<SmartLedgerHome> {
       builder: (context) => StatefulBuilder(
         builder: (context, setModalState) => AlertDialog(
           title: Text(
-            isRegular ? 'Naya Regular Expense Add Karein' : 'Naya Expense Add Karein',
+            isRegular
+                ? 'Naya Regular Expense Add Karein'
+                : 'Naya Expense Add Karein',
           ),
           content: SingleChildScrollView(
             child: Column(
@@ -296,7 +300,10 @@ class _SmartLedgerHomeState extends State<SmartLedgerHome> {
                       border: OutlineInputBorder(),
                     ),
                     items: const ['Daily', 'Weekly', 'Monthly']
-                        .map((freq) => DropdownMenuItem(value: freq, child: Text(freq)))
+                        .map(
+                          (freq) =>
+                              DropdownMenuItem(value: freq, child: Text(freq)),
+                        )
                         .toList(),
                     onChanged: (val) {
                       if (val != null) {
@@ -473,7 +480,8 @@ class _SmartLedgerHomeState extends State<SmartLedgerHome> {
                   children: [
                     const Text(
                       'Apna Monthly Budget',
-                      style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold),
+                      style:
+                          TextStyle(fontSize: 16, fontWeight: FontWeight.bold),
                     ),
                     TextButton.icon(
                       onPressed: _setMonthlyBudgetDialog,
@@ -484,128 +492,11 @@ class _SmartLedgerHomeState extends State<SmartLedgerHome> {
                 ),
                 Text(
                   _monthlyBudget.toStringAsFixed(0),
-                  style: const TextStyle(fontSize: 28, fontWeight: FontWeight.bold),
+                  style: const TextStyle(
+                      fontSize: 28, fontWeight: FontWeight.bold),
                 ),
                 const SizedBox(height: 10),
                 LinearProgressIndicator(value: progress),
                 const SizedBox(height: 10),
                 Row(
-                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                  children: [
-                    Text('Total Kharcha: ${_totalSpent.toStringAsFixed(0)}'),
-                    Text(
-                      'Baqi: ${_remainingBudget.toStringAsFixed(0)}',
-                      style: TextStyle(
-                        fontWeight: FontWeight.bold,
-                        color: _remainingBudget < 0 ? Colors.red : Colors.teal,
-                      ),
-                    ),
-                  ],
-                ),
-              ],
-            ),
-          ),
-        ),
-        const SizedBox(height: 12),
-        Row(
-          children: [
-            Expanded(
-              child: Card(
-                child: Padding(
-                  padding: const EdgeInsets.all(14),
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      const Text('Regular Expenses'),
-                      const SizedBox(height: 6),
-                      Text(
-                        _regularExpensesTotal.toStringAsFixed(0),
-                        style: const TextStyle(
-                          fontSize: 20,
-                          fontWeight: FontWeight.bold,
-                        ),
-                      ),
-                    ],
-                  ),
-                ),
-              ),
-            ),
-            const SizedBox(width: 12),
-            Expanded(
-              child: Card(
-                child: Padding(
-                  padding: const EdgeInsets.all(14),
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      const Text('Total Entries'),
-                      const SizedBox(height: 6),
-                      Text(
-                        '${_entries.length}',
-                        style: const TextStyle(
-                          fontSize: 20,
-                          fontWeight: FontWeight.bold,
-                        ),
-                      ),
-                    ],
-                  ),
-                ),
-              ),
-            ),
-          ],
-        ),
-        const SizedBox(height: 16),
-        const Text(
-          'Recent Entries',
-          style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold),
-        ),
-        const SizedBox(height: 8),
-        if (_entries.isEmpty)
-          const Card(
-            child: Padding(
-              padding: EdgeInsets.all(20),
-              child: Text(
-                'Abhi koi entry nahi hai. Neeche + button se apna expense ya regular expense add karein.',
-              ),
-            ),
-          )
-        else
-          ..._entries.take(5).map(
-                (entry) => Card(
-                  child: ListTile(
-                    title: Text(entry.title),
-                    subtitle: Text(
-                      entry.type == TransactionType.regularExpense
-                          ? '${entry.category} • Regular (${entry.frequency})'
-                          : '${entry.category} • Expense',
-                    ),
-                    trailing: Text(
-                      '-${entry.amount.toStringAsFixed(0)}',
-                      style: const TextStyle(fontWeight: FontWeight.bold),
-                    ),
-                  ),
-                ),
-              ),
-      ],
-    );
-  }
-
-  Widget _buildExpensesTab() {
-    return ListView(
-      padding: const EdgeInsets.all(16),
-      children: [
-        if (_entries.isEmpty)
-          const Card(
-            child: Padding(
-              padding: EdgeInsets.all(20),
-              child: Text('Koi expense add nahi hua. Naya expense add karne ke liye + dabayein.'),
-            ),
-          )
-        else
-          ..._entries.map(
-            (entry) => Card(
-              child: ListTile(
-                title: Text(entry.title),
-                subtitle: Text(
-                  entry.type == TransactionType.regularExpense
-                      ? '${entry.ca
+                  mainAxisAlignment: MainAxis
